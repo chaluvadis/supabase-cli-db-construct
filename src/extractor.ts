@@ -213,34 +213,38 @@ export class SupabaseExtractor {
 			for (const table of tables) {
 				// Get CREATE TABLE statement
 				const createTableQuery = `
-	        SELECT
-	          'CREATE TABLE IF NOT EXISTS ' || quote_ident(table_schema) || '.' || quote_ident(table_name) || ' (' ||
-	          string_agg(
-	            quote_ident(column_name) || ' ' ||
-	            CASE
-	              WHEN data_type = 'ARRAY' THEN 'text[]'
-	              WHEN data_type = 'USER-DEFINED' THEN 'text'
-	              ELSE data_type ||
-	                CASE
-	                  WHEN character_maximum_length IS NOT NULL
-	                  THEN '(' || character_maximum_length || ')'
-	                  ELSE ''
-	                END
-	            END ||
-	            CASE
-	              WHEN is_nullable = 'NO' THEN ' NOT NULL'
-	              ELSE ''
-	            END ||
-	            CASE
-	              WHEN column_default IS NOT NULL THEN ' DEFAULT ' || column_default
-	              ELSE ''
-	            END,
-	            ', '
-	          ) || ');' as create_statement
-	        FROM information_schema.columns
-	        WHERE table_schema = $1 AND table_name = $2
-	        GROUP BY table_schema, table_name;
-	      `;
+			    SELECT
+			      'CREATE TABLE IF NOT EXISTS ' || quote_ident(table_schema) || '.' || quote_ident(table_name) || ' (' ||
+			      string_agg(
+			        quote_ident(column_name) || ' ' ||
+			        CASE
+			          WHEN data_type = 'ARRAY' THEN 'text[]'
+			          WHEN data_type = 'USER-DEFINED' THEN 'text'
+			          ELSE data_type ||
+			            CASE
+			              WHEN character_maximum_length IS NOT NULL
+			              THEN '(' || character_maximum_length || ')'
+			              ELSE ''
+			            END
+			        END ||
+			        CASE
+			          WHEN is_nullable = 'NO' THEN ' NOT NULL'
+			          ELSE ''
+			        END ||
+			        CASE
+			          WHEN column_default IS NOT NULL THEN
+			            CASE
+			              WHEN column_default LIKE '%uuid_generate_v4()%' THEN ' DEFAULT gen_random_uuid()'
+			              ELSE ' DEFAULT ' || column_default
+			            END
+			          ELSE ''
+			        END,
+			        ', '
+			      ) || ');' as create_statement
+			    FROM information_schema.columns
+			    WHERE table_schema = $1 AND table_name = $2
+			    GROUP BY table_schema, table_name;
+			  `;
 
 				const result = await client.query(createTableQuery, [
 					table.schema,
