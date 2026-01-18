@@ -219,7 +219,7 @@ export class SupabaseExtractor {
 			        quote_ident(column_name) || ' ' ||
 			        CASE
 			          WHEN data_type = 'ARRAY' THEN 'text[]'
-			          WHEN data_type = 'USER-DEFINED' THEN 'text'
+			          WHEN data_type = 'USER-DEFINED' THEN COALESCE(quote_ident(udt_schema) || '.', '') || quote_ident(udt_name)
 			          ELSE data_type ||
 			            CASE
 			              WHEN character_maximum_length IS NOT NULL
