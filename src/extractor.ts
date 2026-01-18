@@ -158,26 +158,8 @@ export class SupabaseExtractor {
     }
 
     // Generate INSERT statements for each table
-    for (const table of tables) {
-      const tableData = data[table.name];
-      
-      if (!tableData || tableData.length === 0) {
-        sql += `-- No data for table: ${table.name}\n\n`;
-        continue;
-      }
-
-      sql += `-- Data for table: ${table.name}\n`;
-      sql += `-- Rows: ${tableData.length}\n\n`;
-
-      for (const row of tableData) {
-        const columns = Object.keys(row);
-        const values = columns.map(col => this.formatValue(row[col]));
-        
-        sql += `INSERT INTO ${table.schema}.${table.name} (${columns.map(c => `"${c}"`).join(', ')}) VALUES (${values.join(', ')});\n`;
-      }
-
-      sql += '\n';
-    }
+    const insertSQL = await this.generateInsertStatements(tables, data);
+    sql += insertSQL;
 
     sql += '\n-- Re-enable triggers and constraints\n';
     sql += 'SET session_replication_role = DEFAULT;\n';
@@ -269,7 +251,7 @@ export class SupabaseExtractor {
     }
 
     if (typeof value === 'string') {
-      // Escape single quotes
+      // Escape single quotes by doubling them (standard SQL escaping)
       return `'${value.replace(/'/g, "''")}'`;
     }
 
@@ -278,6 +260,10 @@ export class SupabaseExtractor {
     }
 
     if (typeof value === 'number') {
+      // Check for valid numbers
+      if (!isFinite(value)) {
+        return 'NULL';
+      }
       return value.toString();
     }
 
@@ -286,10 +272,58 @@ export class SupabaseExtractor {
     }
 
     if (typeof value === 'object') {
-      // Handle JSON objects
-      return `'${JSON.stringify(value).replace(/'/g, "''")}'::jsonb`;
+      // Handle JSON objects - validate before stringifying
+      try {
+        const jsonStr = JSON.stringify(value);
+        // Escape single quotes in JSON
+        return `'${jsonStr.replace(/'/g, "''")}'::jsonb`;
+      } catch (e) {
+        console.warn('Warning: Could not serialize object to JSON, using NULL');
+        return 'NULL';
+      }
     }
 
+    // Fallback for other types
     return `'${String(value).replace(/'/g, "''")}'`;
+  }
+
+  /**
+   * Properly quote SQL identifiers to prevent injection
+   */
+  private quoteIdentifier(identifier: string): string {
+    // PostgreSQL identifier quoting: double quotes and escape any double quotes inside
+    return `"${identifier.replace(/"/g, '""')}"`;
+  }
+
+  /**
+   * Generate INSERT statements for each table
+   */
+  private async generateInsertStatements(tables: TableInfo[], data: Record<string, any[]>): Promise<string> {
+    let sql = '';
+
+    for (const table of tables) {
+      const tableData = data[table.name];
+      
+      if (!tableData || tableData.length === 0) {
+        sql += `-- No data for table: ${table.name}\n\n`;
+        continue;
+      }
+
+      sql += `-- Data for table: ${table.name}\n`;
+      sql += `-- Rows: ${tableData.length}\n\n`;
+
+      for (const row of tableData) {
+        const columns = Object.keys(row);
+        const values = columns.map(col => this.formatValue(row[col]));
+        
+        sql += `INSERT INTO ${this.quoteIdentifier(table.schema)}.${this.quoteIdentifier(table.name)} (`;
+        sql += columns.map(c => this.quoteIdentifier(c)).join(', ');
+        sql += `) VALUES (${values.join(', ')});\n`;
+      }
+
+      sql += '\n';
+    }
+
+    return sql;
   }
 }

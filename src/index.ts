@@ -12,12 +12,13 @@ async function main() {
 
   // Validate environment variables
   const supabaseUrl = process.env.SUPABASE_URL;
-  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const databaseUrl = process.env.DATABASE_URL;
 
   if (!supabaseUrl || !supabaseKey) {
     console.error('❌ Error: Missing required environment variables.');
     console.error('Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in your .env file');
+    console.error('Note: SUPABASE_SERVICE_ROLE_KEY (not ANON_KEY) is required for full database access');
     console.error('See .env.example for reference');
     process.exit(1);
   }
