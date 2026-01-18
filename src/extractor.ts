@@ -192,8 +192,9 @@ export class SupabaseExtractor {
 			// First, extract enum types
 			const enumQuery = `
 	      SELECT
+	        quote_ident(typname) as type_name,
 	        'CREATE TYPE ' || quote_ident(typname) || ' AS ENUM (' ||
-	        string_agg(quote_literal(enumlabel), ', ') || ');' as create_enum
+	        string_agg(quote_literal(enumlabel), ', ' ORDER BY pg_enum.enumsortorder) || ');' as create_enum
 	      FROM pg_type
 	      JOIN pg_enum ON pg_type.oid = pg_enum.enumtypid
 	      JOIN pg_catalog.pg_namespace ON pg_type.typnamespace = pg_namespace.oid
@@ -205,13 +206,15 @@ export class SupabaseExtractor {
 			if (enumResult.rows.length > 0) {
 				sql += "-- Enum Types\n\n";
 				for (const row of enumResult.rows) {
-					sql += `${row.create_enum}\n`;
+					sql += `DROP TYPE IF EXISTS ${row.type_name} CASCADE;\n`;
+					sql += `${row.create_enum}\n\n`;
 				}
-				sql += "\n";
 			}
 
 			for (const table of tables) {
 				// Get CREATE TABLE statement
+				// Note: PostgreSQL 13+ includes gen_random_uuid() by default.
+				// For older versions, you may need the uuid-ossp extension and uuid_generate_v4().
 				const createTableQuery = `
 			    SELECT
 			      'CREATE TABLE IF NOT EXISTS ' || quote_ident(table_schema) || '.' || quote_ident(table_name) || ' (' ||
