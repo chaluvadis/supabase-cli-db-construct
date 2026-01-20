@@ -357,7 +357,7 @@ export class SupabaseExtractor {
 	/**
 	 * Generate INSERT statements for each table
 	 */
-	private async generateInsertStatements(
+	public async generateInsertStatements(
 		tables: TableInfo[],
 		data: Record<string, any[]>,
 	): Promise<string> {
