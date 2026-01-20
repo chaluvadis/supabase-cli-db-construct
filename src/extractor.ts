@@ -121,27 +121,40 @@ export class SupabaseExtractor {
 		const limit = 1000; // Fetch in batches
 		let hasMore = true;
 
+		console.log(`🔍 Starting data extraction for table: ${tableName}`);
+
 		while (hasMore) {
-			const { data, error } = await this.supabase
+			console.log(`📊 Fetching batch: offset=${offset}, limit=${limit}`);
+
+			const { data, error, count } = await this.supabase
 				.from(tableName)
-				.select("*")
+				.select("*", { count: "exact" })
 				.range(offset, offset + limit - 1);
 
 			if (error) {
+				console.error(`❌ Error fetching data from ${tableName}:`, error);
 				throw new Error(
 					`Error fetching data from ${tableName}: ${error.message}`,
 				);
 			}
 
+			console.log(`📥 Received ${data?.length || 0} rows in this batch`);
+			console.log(`📊 Total count for ${tableName}: ${count || "unknown"}`);
+
 			if (data && data.length > 0) {
 				allRows.push(...data);
 				offset += limit;
 				hasMore = data.length === limit;
+				console.log(`📈 Total rows collected so far: ${allRows.length}`);
 			} else {
 				hasMore = false;
+				console.log(`🛑 No more data to fetch for ${tableName}`);
 			}
 		}
 
+		console.log(
+			`✅ Completed extraction for ${tableName}: ${allRows.length} total rows`,
+		);
 		return allRows;
 	}
 
