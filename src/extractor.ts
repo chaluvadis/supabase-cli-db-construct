@@ -304,7 +304,7 @@ export class SupabaseExtractor {
 	/**
 	 * Format a value for SQL INSERT statement
 	 */
-	private formatValue(value: any): string {
+	private formatValue(value: any, columnName?: string): string {
 		if (value === null || value === undefined) {
 			return "NULL";
 		}
@@ -335,7 +335,28 @@ export class SupabaseExtractor {
 			try {
 				const jsonStr = JSON.stringify(value);
 				// Escape single quotes in JSON
-				return `'${jsonStr.replace(/'/g, "''")}'::jsonb`;
+				const escapedJson = jsonStr.replace(/'/g, "''");
+
+				// Special handling for text[] columns (like specialties)
+				if (columnName === "specialties") {
+					// Parse the JSON array and format as PostgreSQL array literal
+					try {
+						const arrayItems = JSON.parse(escapedJson);
+						if (Array.isArray(arrayItems)) {
+							const escapedItems = arrayItems.map(
+								(item: string) => `'${item.replace(/'/g, "''")}'`,
+							);
+							return `ARRAY[${escapedItems.join(",")}]::text[]`;
+						}
+					} catch (e) {
+						console.warn(
+							"Warning: Could not parse array for specialties column",
+						);
+					}
+					return `ARRAY[]::text[]`;
+				}
+
+				return `'${escapedJson}'::jsonb`;
 			} catch (e) {
 				console.warn("Warning: Could not serialize object to JSON, using NULL");
 				return "NULL";
@@ -360,6 +381,7 @@ export class SupabaseExtractor {
 	public async generateInsertStatements(
 		tables: TableInfo[],
 		data: Record<string, any[]>,
+		includeDropStatements: boolean = false,
 	): Promise<string> {
 		let sql = "";
 
@@ -371,12 +393,17 @@ export class SupabaseExtractor {
 				continue;
 			}
 
+			if (includeDropStatements) {
+				sql += `DROP TABLE IF EXISTS ${this.quoteIdentifier(table.schema)}.${this.quoteIdentifier(table.name)} CASCADE;\n`;
+				sql += `-- Table: ${table.schema}.${table.name}\n`;
+			}
+
 			sql += `-- Data for table: ${table.name}\n`;
 			sql += `-- Rows: ${tableData.length}\n\n`;
 
 			for (const row of tableData) {
 				const columns = Object.keys(row);
-				const values = columns.map((col) => this.formatValue(row[col]));
+				const values = columns.map((col) => this.formatValue(row[col], col));
 
 				sql += `INSERT INTO ${this.quoteIdentifier(table.schema)}.${this.quoteIdentifier(table.name)} (`;
 				sql += columns.map((c) => this.quoteIdentifier(c)).join(", ");

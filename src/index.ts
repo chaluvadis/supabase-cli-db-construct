@@ -72,14 +72,17 @@ async function main() {
 		fs.writeFileSync(sqlFilePath, sqlScript);
 		console.log(`✅ SQL script saved to: ${sqlFilePath}\n`);
 
-		// Write SQL INSERT statements file
+		// Write SQL INSERT statements file with DROP TABLE statements
 		const insertStatements = await extractor.generateInsertStatements(
 			tables,
 			extractedData,
+			true,
 		);
 		const insertFilePath = path.join(outputDir, "database_inserts.sql");
 		fs.writeFileSync(insertFilePath, insertStatements);
-		console.log(`✅ SQL INSERT statements saved to: ${insertFilePath}\n`);
+		console.log(
+			`✅ SQL INSERT statements with DROP TABLE saved to: ${insertFilePath}\n`,
+		);
 
 		console.log("🎉 Database extraction complete!");
 		console.log("\nTo reconstruct the database offline:");
