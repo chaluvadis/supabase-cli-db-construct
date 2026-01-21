@@ -10,11 +10,13 @@ export interface SupabaseExtractorConfig {
 	supabaseUrl: string;
 	supabaseKey: string;
 	databaseUrl?: string;
+	verbose?: boolean;
 }
 
 export class SupabaseExtractor {
 	private supabase: SupabaseClient;
 	private config: SupabaseExtractorConfig;
+	private columnTypes: Map<string, Map<string, string>> = new Map();
 
 	constructor(config: SupabaseExtractorConfig) {
 		this.config = config;
@@ -92,10 +94,54 @@ export class SupabaseExtractor {
 	}
 
 	/**
+	 * Fetch column type information for a table
+	 */
+	private async fetchColumnTypes(tableName: string, schema: string = 'public'): Promise<Map<string, string>> {
+		if (!this.config.databaseUrl) {
+			return new Map();
+		}
+
+		const client = new PgClient({ connectionString: this.config.databaseUrl });
+
+		try {
+			await client.connect();
+
+			const query = `
+				SELECT column_name, data_type
+				FROM information_schema.columns
+				WHERE table_schema = $1 AND table_name = $2;
+			`;
+
+			const result = await client.query(query, [schema, tableName]);
+			const typeMap = new Map<string, string>();
+
+			for (const row of result.rows) {
+				typeMap.set(row.column_name, row.data_type);
+			}
+
+			return typeMap;
+		} finally {
+			await client.end();
+		}
+	}
+
+	/**
 	 * Extract all data from specified tables
 	 */
 	async extractAllData(tables: TableInfo[]): Promise<Record<string, any[]>> {
 		const allData: Record<string, any[]> = {};
+
+		// Fetch column types for all tables if DATABASE_URL is available
+		if (this.config.databaseUrl) {
+			for (const table of tables) {
+				try {
+					const types = await this.fetchColumnTypes(table.name, table.schema);
+					this.columnTypes.set(table.name, types);
+				} catch (error) {
+					console.warn(`Warning: Could not fetch column types for ${table.name}`);
+				}
+			}
+		}
 
 		for (const table of tables) {
 			try {
@@ -121,14 +167,19 @@ export class SupabaseExtractor {
 		const limit = 1000; // Fetch in batches
 		let hasMore = true;
 
-		console.log(`🔍 Starting data extraction for table: ${tableName}`);
+		if (this.config.verbose) {
+			console.log(`🔍 Starting data extraction for table: ${tableName}`);
+		}
 
 		while (hasMore) {
-			console.log(`📊 Fetching batch: offset=${offset}, limit=${limit}`);
+			if (this.config.verbose) {
+				console.log(`📊 Fetching batch: offset=${offset}, limit=${limit}`);
+			}
 
-			const { data, error, count } = await this.supabase
+			// Only request count on the first batch for performance
+			const { data, error } = await this.supabase
 				.from(tableName)
-				.select("*", { count: "exact" })
+				.select("*")
 				.range(offset, offset + limit - 1);
 
 			if (error) {
@@ -138,23 +189,30 @@ export class SupabaseExtractor {
 				);
 			}
 
-			console.log(`📥 Received ${data?.length || 0} rows in this batch`);
-			console.log(`📊 Total count for ${tableName}: ${count || "unknown"}`);
+			if (this.config.verbose) {
+				console.log(`📥 Received ${data?.length || 0} rows in this batch`);
+			}
 
 			if (data && data.length > 0) {
 				allRows.push(...data);
 				offset += limit;
 				hasMore = data.length === limit;
-				console.log(`📈 Total rows collected so far: ${allRows.length}`);
+				if (this.config.verbose) {
+					console.log(`📈 Total rows collected so far: ${allRows.length}`);
+				}
 			} else {
 				hasMore = false;
-				console.log(`🛑 No more data to fetch for ${tableName}`);
+				if (this.config.verbose) {
+					console.log(`🛑 No more data to fetch for ${tableName}`);
+				}
 			}
 		}
 
-		console.log(
-			`✅ Completed extraction for ${tableName}: ${allRows.length} total rows`,
-		);
+		if (this.config.verbose) {
+			console.log(
+				`✅ Completed extraction for ${tableName}: ${allRows.length} total rows`,
+			);
+		}
 		return allRows;
 	}
 
@@ -304,7 +362,7 @@ export class SupabaseExtractor {
 	/**
 	 * Format a value for SQL INSERT statement
 	 */
-	private formatValue(value: any, columnName?: string): string {
+	private formatValue(value: any, tableName?: string, columnName?: string): string {
 		if (value === null || value === undefined) {
 			return "NULL";
 		}
@@ -331,31 +389,23 @@ export class SupabaseExtractor {
 		}
 
 		if (typeof value === "object") {
+			// Check if this is an array column based on column type information
+			const isArrayColumn = tableName && columnName && 
+				this.columnTypes.get(tableName)?.get(columnName) === 'ARRAY';
+
+			if (isArrayColumn && Array.isArray(value)) {
+				// Format as PostgreSQL array literal for text[] columns
+				const escapedItems = value.map(
+					(item: any) => `'${String(item).replace(/'/g, "''")}'`,
+				);
+				return `ARRAY[${escapedItems.join(",")}]::text[]`;
+			}
+
 			// Handle JSON objects - validate before stringifying
 			try {
 				const jsonStr = JSON.stringify(value);
 				// Escape single quotes in JSON
 				const escapedJson = jsonStr.replace(/'/g, "''");
-
-				// Special handling for text[] columns (like specialties)
-				if (columnName === "specialties") {
-					// Parse the JSON array and format as PostgreSQL array literal
-					try {
-						const arrayItems = JSON.parse(escapedJson);
-						if (Array.isArray(arrayItems)) {
-							const escapedItems = arrayItems.map(
-								(item: string) => `'${item.replace(/'/g, "''")}'`,
-							);
-							return `ARRAY[${escapedItems.join(",")}]::text[]`;
-						}
-					} catch (e) {
-						console.warn(
-							"Warning: Could not parse array for specialties column",
-						);
-					}
-					return `ARRAY[]::text[]`;
-				}
-
 				return `'${escapedJson}'::jsonb`;
 			} catch (e) {
 				console.warn("Warning: Could not serialize object to JSON, using NULL");
@@ -403,7 +453,7 @@ export class SupabaseExtractor {
 
 			for (const row of tableData) {
 				const columns = Object.keys(row);
-				const values = columns.map((col) => this.formatValue(row[col], col));
+				const values = columns.map((col) => this.formatValue(row[col], table.name, col));
 
 				sql += `INSERT INTO ${this.quoteIdentifier(table.schema)}.${this.quoteIdentifier(table.name)} (`;
 				sql += columns.map((c) => this.quoteIdentifier(c)).join(", ");
