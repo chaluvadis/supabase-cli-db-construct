@@ -390,15 +390,16 @@ export class SupabaseExtractor {
 
 		if (typeof value === "object") {
 			// Check if this is an array column based on column type information
-			const isArrayColumn = tableName && columnName && 
-				this.columnTypes.get(tableName)?.get(columnName) === 'ARRAY';
+			const columnType = tableName && columnName && 
+				this.columnTypes.get(tableName)?.get(columnName);
+			const isArrayColumn = columnType?.endsWith('[]');
 
 			if (isArrayColumn && Array.isArray(value)) {
-				// Format as PostgreSQL array literal for text[] columns
+				// Format as PostgreSQL array literal
 				const escapedItems = value.map(
 					(item: any) => `'${String(item).replace(/'/g, "''")}'`,
 				);
-				return `ARRAY[${escapedItems.join(",")}]::text[]`;
+				return `ARRAY[${escapedItems.join(",")}]::${columnType}`;
 			}
 
 			// Handle JSON objects - validate before stringifying
