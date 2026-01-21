@@ -176,7 +176,6 @@ export class SupabaseExtractor {
 				console.log(`📊 Fetching batch: offset=${offset}, limit=${limit}`);
 			}
 
-			// Only request count on the first batch for performance
 			const { data, error } = await this.supabase
 				.from(tableName)
 				.select("*")
