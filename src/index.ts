@@ -38,6 +38,7 @@ async function main() {
 			supabaseUrl,
 			supabaseKey,
 			databaseUrl,
+			verbose: process.env.VERBOSE === "true",
 		});
 
 		// Create output directory
@@ -72,16 +73,16 @@ async function main() {
 		fs.writeFileSync(sqlFilePath, sqlScript);
 		console.log(`✅ SQL script saved to: ${sqlFilePath}\n`);
 
-		// Write SQL INSERT statements file with DROP TABLE statements
+		// Write SQL rebuild script with DROP TABLE statements
 		const insertStatements = await extractor.generateInsertStatements(
 			tables,
 			extractedData,
 			true,
 		);
-		const insertFilePath = path.join(outputDir, "database_inserts.sql");
-		fs.writeFileSync(insertFilePath, insertStatements);
+		const rebuildFilePath = path.join(outputDir, "database_rebuild.sql");
+		fs.writeFileSync(rebuildFilePath, insertStatements);
 		console.log(
-			`✅ SQL INSERT statements with DROP TABLE saved to: ${insertFilePath}\n`,
+			`✅ SQL rebuild script with DROP TABLE saved to: ${rebuildFilePath}\n`,
 		);
 
 		console.log("🎉 Database extraction complete!");
