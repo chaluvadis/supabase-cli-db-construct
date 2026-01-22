@@ -38,6 +38,7 @@ async function main() {
 			supabaseUrl,
 			supabaseKey,
 			databaseUrl,
+			verbose: process.env.VERBOSE === "true",
 		});
 
 		// Create output directory
@@ -72,10 +73,17 @@ async function main() {
 		fs.writeFileSync(sqlFilePath, sqlScript);
 		console.log(`✅ SQL script saved to: ${sqlFilePath}\n`);
 
-		// Write JSON data file
-		const jsonFilePath = path.join(outputDir, "database_data.json");
-		fs.writeFileSync(jsonFilePath, JSON.stringify(extractedData, null, 2));
-		console.log(`✅ JSON data saved to: ${jsonFilePath}\n`);
+		// Write SQL rebuild script with DROP TABLE statements
+		const insertStatements = await extractor.generateInsertStatements(
+			tables,
+			extractedData,
+			true,
+		);
+		const rebuildFilePath = path.join(outputDir, "database_rebuild.sql");
+		fs.writeFileSync(rebuildFilePath, insertStatements);
+		console.log(
+			`✅ SQL rebuild script with DROP TABLE saved to: ${rebuildFilePath}\n`,
+		);
 
 		console.log("🎉 Database extraction complete!");
 		console.log("\nTo reconstruct the database offline:");
